@@ -24,11 +24,11 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
-    def add_new_element_to_store(entry_sequence, element, precede_vessel_id, logical_clock,time_stamp):
-        global board
+    def add_new_element_to_store(entry_sequence, element, logical_clock,time_stamp):
+        global board, node_id
         success = False
         try:
-            board[entry_sequence] = "{},{},{},{}".format(element,precede_vessel_id, logical_clock, time_stamp)
+            board[entry_sequence] = "{},{},{},{}".format(element,logical_clock,time_stamp,node_id)
             success = True
             t = Thread(target=eventually_consistency) 
             t.daemon = True
@@ -88,22 +88,25 @@ try:
 
     def eventually_consistency():
         global board
-        print "\nstart eventually consistency!"
+        print "before board is {}".format(board)
         for key1, value1 in board.items():
-            en1,pre_id1,lc1,ts1 = value1.split(',')
+            en1,lc1,ts1,no_id1 = value1.split(',')
             for key2,value2 in board.items():
-                en2,pre_id2,lc2,ts2 = value2.split(',')
+                en2,lc2,ts2,no_id2 = value2.split(',')
                 if key1 < key2: # compare with the next entry in the board dictionary
                     if ts1 > ts2: # small timestamp should display first in the webpage, so swap the value
-                        temp = board[key1]
-                        board[key1] = board[key2]
-                        board[key2] = temp
+                        print "1=00:before swap board[key1] is {}, board[key2] is {}".format(board[key1],board[key2])
+                        board[key1] = value2
+                        board[key2] = value1
+                        print "1=00:after swap board[key1] is {}, board[key2] is {}".format(board[key1],board[key2])
+                        print "board is {}".format(board)
                     elif ts1 == ts2: # timestamp is the same, break the tie with increase node_id order 
-                        if pre_id1 > pre_id2: # vessel with small node id should dispaly first
-                            temp = board[key1]
-                            board[key1] = board[key2]
-                            board[key2] = temp
+                        if no_id1 > no_id2: # vessel with small node id should dispaly first
+                            board[key1] = value2
+                            board[key2] = value1
+                            print "2:after swap value1 is {}, value 2 is {}".format(value1,value2)
         print "\nfinish eventually consistency!\n"
+        print "after board is {}".format(board)
         return board
 
 
@@ -139,10 +142,10 @@ try:
             # propagate threads to avoid blocking,create the thread as a deamon
             LC = LC + 1
             TS = LC
-            #print "\nLC:{},TS:{}\n".format(LC,TS)
-            add_new_element_to_store(sequence_number, new_entry, node_id, LC, TS) 
+            print "\nLC:{},TS:{}\n".format(LC,TS)
+            add_new_element_to_store(sequence_number, new_entry,LC,TS) 
             board_dict = {sequence_number : new_entry}
-            t = Thread(target=propagate_to_vessels, args = ('/propagate/add/{}/{}/{}/{}'.format(sequence_number,node_id,LC,TS),board_dict[sequence_number],'POST')) 
+            t = Thread(target=propagate_to_vessels, args = ('/propagate/add/{}/{}/{}'.format(sequence_number,LC,TS),board_dict[sequence_number],'POST')) 
             t.daemon = True
             t.start()
             sequence_number = sequence_number + 1
@@ -163,10 +166,10 @@ try:
             print e
         return False
 
-    @app.post('/propagate/<action>/<element_id:int>/<precede_vessel_ID:int>/<Logical_Clock:int>/<TimeStamp:int>')
-    def propagation_received(action, element_id,precede_vessel_ID,Logical_Clock, TimeStamp):
+    @app.post('/propagate/<action>/<element_id:int>/<Logical_Clock:int>/<TimeStamp:int>')
+    def propagation_received(action, element_id,Logical_Clock, TimeStamp):
         # check the action is add, modify or delete
-        global board, sequence_number, LC, TS
+        global board, node_id, sequence_number, LC, TS
         try:
             if action == 'add':
                 body = request.body.read()
@@ -175,8 +178,8 @@ try:
                 else:
                     LC = LC + 1
                 TS = Logical_Clock
-                #print "\nLC:{},TS:{}\n".format(LC,TS)
-                add_new_element_to_store(sequence_number, body, precede_vessel_ID, LC, TS) 
+                print "\nafter,LC:{},TS:{}\n".format(LC,TS)
+                add_new_element_to_store(sequence_number,body,LC,TS) 
                 sequence_number = sequence_number + 1
 
             return True
