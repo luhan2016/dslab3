@@ -14,30 +14,27 @@ from threading import Thread
 
 from bottle import Bottle, run, request, template
 import requests
-import operator
 # ------------------------------------------------------------------------------------------------------
 try:
     app = Bottle()
 
-    board = {0:"nothing,lc,ts,node_id"} 
-    new_board = {0:"nothing,lc,ts,node_id"} 
+    board = {0:"nothing"} 
+
+
     # ------------------------------------------------------------------------------------------------------
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
-    def add_new_element_to_store(entry_sequence, element, logical_clock,time_stamp):
+    def add_new_element_to_store(entry_sequence, element, is_propagated_call=False):
         global board, node_id
         success = False
         try:
-            board[entry_sequence] = "{},{},{},{}".format(element,logical_clock,time_stamp,node_id)
+            board[entry_sequence] = element
             success = True
-            t = Thread(target=eventually_consistency) 
-            t.daemon = True
-            t.start()
         except Exception as e:
             print e
         return success
 
-    def modify_element_in_store(entry_sequence, modified_element, LC):
+    def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
         global board, node_id
         success = False
         try:
@@ -47,7 +44,7 @@ try:
             print e
         return success
 
-    def delete_element_from_store(entry_sequence, LC):
+    def delete_element_from_store(entry_sequence, is_propagated_call = False):
         global board, node_id
         success = False
         try:
@@ -83,31 +80,8 @@ try:
         for vessel_id, vessel_ip in vessel_list.items():
             if int(vessel_id) != node_id: # don't propagate to yourself
                 success = contact_vessel(vessel_ip, path, payload, req)
-                #if not success:
-                    #print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
-
-    def eventually_consistency():
-        global board
-        for key1, value1 in board.items():
-            print "in for loop1"
-            en1,lc1,ts1,no_id1 = value1.split(',')
-            for key2,value2 in board.items():
-                print "in for loop2"
-                en2,lc2,ts2,no_id2 = value2.split(',')
-                if key1 < key2: # compare with the next entry in the board dictionary
-                    print "key1<key2"
-                    if ts1 > ts2: # small timestamp should display first in the webpage, so swap the value
-                        print "ts1 > ts2"
-                        temp = value1
-                        value1 = value2
-                        value2 = temp
-                    elif ts1 == ts2: # timestamp is the same, break the tie with increase node_id order 
-                        if no_id1 > no_id2: # vessel with small node id should dispaly first
-                            print "no_id1 > no_id2"
-                            temp = value1
-                            value1 = value2
-                            value2 = temp
-        print "\nfinish eventually consistency!\n"
+                if not success:
+                    print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
 
 
     # ------------------------------------------------------------------------------------------------------
@@ -117,38 +91,30 @@ try:
     # ------------------------------------------------------------------------------------------------------
     @app.route('/')
     def index():
-        global board, node_id,new_board
-        for key, value in board.items():
-            en,lc,ts,no_id = value.split(',')
-            new_board[key] = en
-        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(new_board.iteritems()), \
-                                            members_name_string='lhan@student.chalmers.se;shahn@student.chalmers.se')
+        global board, node_id
+        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='lhan@student.chalmers.se;shahn@student.chalmers.se')
 
     @app.get('/board')
     def get_board():
-        global board, node_id,new_board
-        for key, value in board.items():
-            en,lc,ts,no_id = value.split(',')
-            new_board[key] = en
-            print en  #no input, print nothing, en is entry value
-        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(new_board.iteritems()))
+        global board, node_id
+        print board  #no input, print nothing
+        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
     def client_add_received():
-        '''Adds a new element to the board, Called directly when a user is doing a POST request on /board'''
-        global board, node_id, sequence_number,LC,TS
+        '''Adds a new element to the board 
+        Called directly when a user is doing a POST request on /board'''
+        global board, node_id, LC
         try:
-            new_entry = request.forms.get('entry') # new_entry is the user input from webpage, Change board value from nothing to new_entry
+            new_entry = request.forms.get('entry') # new_entry is the user input from webpage
+            # change board value from nothing to new_entry
             # propagate threads to avoid blocking,create the thread as a deamon
-            LC = LC + 1
-            TS = LC
-            print "\nLC:{},TS:{}\n".format(LC,TS)
-            add_new_element_to_store(sequence_number, new_entry,LC,TS) 
-            board_dict = {sequence_number : new_entry}
-            t = Thread(target=propagate_to_vessels, args = ('/propagate/add/{}/{}/{}'.format(sequence_number,LC,TS),board_dict[sequence_number],'POST')) 
+            add_new_element_to_store(LC, new_entry) 
+            board_dict = {LC : new_entry}
+            t = Thread(target=propagate_to_vessels, args = ('/propagate/add/{}'.format(LC),board_dict[LC],'POST')) 
             t.daemon = True
             t.start()
-            sequence_number = sequence_number + 1
+            LC = LC + 1
             return True
         except Exception as e:
             print e
@@ -156,33 +122,37 @@ try:
 
     @app.post('/board/<element_id:int>/')
     def client_action_received(element_id):
-        global board, node_id,sequence_number, LC, TS
+        global board, node_id,LC
         try:
             # try to get user click, action_dom is action delete or modify
             action_dom = request.forms.get('delete') 
-            
+            if int(action_dom) == 0:
+                modified_element = request.forms.get('entry') 
+                modify_element_in_store(element_id, modified_element, is_propagated_call = False)
+                propagate_to_vessels('/propagate/modify/{}'.format(element_id),modified_element,'POST')
+            elif int(action_dom) == 1:
+                delete_element_from_store(element_id)
+                propagate_to_vessels('/propagate/delete/{}'.format(element_id))
             return True
         except Exception as e:
             print e
         return False
 
-    @app.post('/propagate/<action>/<element_id:int>/<Logical_Clock:int>/<TimeStamp:int>')
-    def propagation_received(action, element_id,Logical_Clock, TimeStamp):
+    @app.post('/propagate/<action>/<element_id:int>')
+    def propagation_received(action, element_id):
         # check the action is add, modify or delete
-        global board, node_id, sequence_number, LC, TS
+        global board, node_id, LC
         try:
             if action == 'add':
                 body = request.body.read()
-                print "\n body:\n".format(body)
-                if LC < Logical_Clock:
-                    LC = Logical_Clock + 1
-                else:
-                    LC = LC + 1
-                TS = Logical_Clock
-                print "\nafter,LC:{},TS:{}\n".format(LC,TS)
-                add_new_element_to_store(sequence_number,body,LC,TS) 
-                sequence_number = sequence_number + 1
-
+                add_new_element_to_store(LC, body) # you might want to change None here
+                LC = LC + 1
+            elif action =='modify':
+                body = request.body.read()
+                modify_element_in_store(element_id, body)
+            elif action == 'delete':
+                delete_element_from_store(element_id)
+            template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
             return True
         except Exception as e:
             print e
@@ -194,10 +164,9 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # Execute the code
     def main():
-        global vessel_list, node_id, app, sequence_number,LC,TS
+        global vessel_list, node_id, app, LC
+
         LC = 0
-        TS = 0
-        sequence_number = 0
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
         parser.add_argument('--id', nargs='?', dest='nid', default=1, type=int, help='This server ID')

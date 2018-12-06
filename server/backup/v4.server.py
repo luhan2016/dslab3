@@ -19,20 +19,18 @@ import operator
 try:
     app = Bottle()
 
-    board = {0:"nothing,lc,ts,node_id"} 
-    new_board = {0:"nothing,lc,ts,node_id"} 
+    board = {0:"nothing"} 
+
+
     # ------------------------------------------------------------------------------------------------------
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
-    def add_new_element_to_store(entry_sequence, element, logical_clock,time_stamp):
+    def add_new_element_to_store(entry_sequence, element, LC):
         global board, node_id
         success = False
         try:
-            board[entry_sequence] = "{},{},{},{}".format(element,logical_clock,time_stamp,node_id)
+            board[entry_sequence] = element
             success = True
-            t = Thread(target=eventually_consistency) 
-            t.daemon = True
-            t.start()
         except Exception as e:
             print e
         return success
@@ -86,29 +84,6 @@ try:
                 #if not success:
                     #print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
 
-    def eventually_consistency():
-        global board
-        for key1, value1 in board.items():
-            print "in for loop1"
-            en1,lc1,ts1,no_id1 = value1.split(',')
-            for key2,value2 in board.items():
-                print "in for loop2"
-                en2,lc2,ts2,no_id2 = value2.split(',')
-                if key1 < key2: # compare with the next entry in the board dictionary
-                    print "key1<key2"
-                    if ts1 > ts2: # small timestamp should display first in the webpage, so swap the value
-                        print "ts1 > ts2"
-                        temp = value1
-                        value1 = value2
-                        value2 = temp
-                    elif ts1 == ts2: # timestamp is the same, break the tie with increase node_id order 
-                        if no_id1 > no_id2: # vessel with small node id should dispaly first
-                            print "no_id1 > no_id2"
-                            temp = value1
-                            value1 = value2
-                            value2 = temp
-        print "\nfinish eventually consistency!\n"
-
 
     # ------------------------------------------------------------------------------------------------------
     # ROUTES
@@ -117,21 +92,15 @@ try:
     # ------------------------------------------------------------------------------------------------------
     @app.route('/')
     def index():
-        global board, node_id,new_board
-        for key, value in board.items():
-            en,lc,ts,no_id = value.split(',')
-            new_board[key] = en
-        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(new_board.iteritems()), \
+        global board, node_id
+        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), \
                                             members_name_string='lhan@student.chalmers.se;shahn@student.chalmers.se')
 
     @app.get('/board')
     def get_board():
-        global board, node_id,new_board
-        for key, value in board.items():
-            en,lc,ts,no_id = value.split(',')
-            new_board[key] = en
-            print en  #no input, print nothing, en is entry value
-        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(new_board.iteritems()))
+        global board, node_id
+        print board  #no input, print nothing
+        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
     def client_add_received():
@@ -143,7 +112,7 @@ try:
             LC = LC + 1
             TS = LC
             print "\nLC:{},TS:{}\n".format(LC,TS)
-            add_new_element_to_store(sequence_number, new_entry,LC,TS) 
+            add_new_element_to_store(sequence_number, new_entry,LC) 
             board_dict = {sequence_number : new_entry}
             t = Thread(target=propagate_to_vessels, args = ('/propagate/add/{}/{}/{}'.format(sequence_number,LC,TS),board_dict[sequence_number],'POST')) 
             t.daemon = True
@@ -173,16 +142,17 @@ try:
         try:
             if action == 'add':
                 body = request.body.read()
-                print "\n body:\n".format(body)
+                print "\nbefore,LC:{},TS:{}".format(LC,TS)
                 if LC < Logical_Clock:
                     LC = Logical_Clock + 1
                 else:
                     LC = LC + 1
                 TS = Logical_Clock
-                print "\nafter,LC:{},TS:{}\n".format(LC,TS)
-                add_new_element_to_store(sequence_number,body,LC,TS) 
+                print "\nafter,LC:{},TS:{}".format(LC,TS)
+                add_new_element_to_store(sequence_number, body,LC) # you might want to change None here
                 sequence_number = sequence_number + 1
 
+            template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
             return True
         except Exception as e:
             print e
