@@ -16,6 +16,7 @@ import threading
 from bottle import Bottle, run, request, template
 import requests
 import operator
+
 # ------------------------------------------------------------------------------------------------------
 try:
     app = Bottle()
@@ -32,6 +33,8 @@ try:
         lock.acquire()
         try:
             board[entry_sequence] = "{},{},{},{}".format(element,precede_vessel_id, logical_clock, time_stamp)
+            million_seconds = int(round(time.time()*1000))
+            print "\n\nelement is {},precede_vessel_id is {}, logical_clock is {}, time_stamp is{},million_seconds is {}\n\n".format(element,precede_vessel_id, logical_clock, time_stamp,million_seconds)
             success = True
             t = Thread(target=eventually_consistency) 
             t.daemon = True
@@ -137,7 +140,9 @@ try:
                             temp = board[key1]
                             board[key1] = board[key2]
                             board[key2] = temp
-        print "finish eventually consistency!\n"
+        million_seconds = int(round(time.time()*1000))
+        print "\nfinish eventually consistency!"
+        print "million_seconds is {}\n".format(million_seconds)
 
     # ------------------------------------------------------------------------------------------------------
     # ROUTES
@@ -159,7 +164,7 @@ try:
         for key, value in board.items():
             en,lc,ts,no_id = value.split(',')
             new_board[key] = en
-            print en  #no input, print nothing, en is entry value
+            #print en  #no input, print nothing, en is entry value
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(new_board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
@@ -248,7 +253,7 @@ try:
         node_id = args.nid
         vessel_list = dict()
         # We need to write the other vessels IP, based on the knowledge of their number
-        for i in range(1, args.nbv):
+        for i in range(1, int(args.nbv)+1):
             vessel_list[str(i)] = '10.1.0.{}'.format(str(i))
 
         try:
