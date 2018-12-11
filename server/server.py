@@ -27,6 +27,9 @@ try:
     # ------------------------------------------------------------------------------------------------------
     # BOARD FUNCTIONS
     # ------------------------------------------------------------------------------------------------------
+
+    # add new element from user input to the board, every time add a new value, call the eventually consistency function once
+    # also in the code, the board dictionary will not only save the id and entry value, but also the precede vessel id, logical clock, time stamp
     def add_new_element_to_store(entry_sequence, element, precede_vessel_id, logical_clock,time_stamp, is_propagated_call = False):
         global board
         success = False
@@ -44,6 +47,18 @@ try:
         lock.release()
         return success
 
+    # modify a value in the blackboard, the lab1 and lab 2 solutions are find the element id and delete the corresponding value
+    # but here we don\t know when we modify (or delete) values, maybe the action happened before reach the eventually consictency
+    # so only based on the element id is not a good way to do it
+    # in order to find the right value to modify, we check the precede vessel id and timestamp of the message
+    # so if it not a propagate call, which means the one who call this function is the one who change it, the vessel just modify it's own value
+    # but if it is a propagate call, which means someone else modify the value and now I am told to change my value too
+    # I need to find the right value to change, which is searched by precede vessel if and timestamp
+
+    # in order to only allow one host can modify (or delete) the blackboard value, we use lock() to run mutex execution
+
+    # if the case modify (or delete) entry is not arrived yet, then create a threat to call the function itself again, 
+    # it finish when successfully modify (or delete) the entry
     def modify_element_in_store(entry_sequence, element, precede_vessel_id, logical_clock,time_stamp, is_propagated_call = False):
         global board, node_id
         success = False
@@ -68,6 +83,7 @@ try:
             t.daemon = True
             t.start()
 
+    # the same idea as modify
     def delete_element_from_store(entry_sequence, precede_vessel_id, logical_clock, time_stamp, is_propagated_call = False):
         global board, node_id
         success = False
@@ -123,6 +139,10 @@ try:
                 #if not success:
                     #print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
 
+    # two for loop to compare if the entry is displayed in the blackboard in the right order
+    # if the high sequency order entry has smaller timestamp, then swap the entry message
+    # if the high sequency entry and the low sequency entry has the same timestamp, 
+    # then break the tie with precede vessel id, smaller precede vessel id has priority 
     def eventually_consistency():
         global board
         print "\ndoing eventually consistency..."
@@ -140,9 +160,12 @@ try:
                             temp = board[key1]
                             board[key1] = board[key2]
                             board[key2] = temp
-        million_seconds = int(round(time.time()*1000))
         print "\nfinish eventually consistency!"
+        million_seconds = int(round(time.time()*1000))
         print "million_seconds is {}\n".format(million_seconds)
+        t = Thread(target=eventually_consistency) 
+        t.daemon = True
+        t.start()
 
     # ------------------------------------------------------------------------------------------------------
     # ROUTES
